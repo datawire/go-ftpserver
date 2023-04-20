@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"sync"
@@ -55,9 +56,9 @@ func (c *client) GetHandle(name string, flags int, offset int64) (ftp.FileTransf
 	return f, nil
 }
 
-func newDriver(ctx context.Context, publicHost string, users map[string]*user, portAnnounceCh chan<- uint16) (*driver, error) {
+func newDriver(ctx context.Context, publicHost string, users map[string]*user, port uint16, portAnnounceCh chan<- uint16) (*driver, error) {
 	lc := net.ListenConfig{}
-	l, err := lc.Listen(ctx, "tcp", "0.0.0.0:0")
+	l, err := lc.Listen(ctx, "tcp", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +78,9 @@ func newDriver(ctx context.Context, publicHost string, users map[string]*user, p
 		}}
 
 	dlog.Infof(ctx, "FTP server listening on %s", d.ListenAddr)
-	portAnnounceCh <- uint16(a.Port)
+	if portAnnounceCh != nil {
+		portAnnounceCh <- uint16(a.Port)
+	}
 	return d, nil
 }
 
@@ -130,15 +133,23 @@ func (d *driver) GetSettings() (*ftp.Settings, error) {
 	return &d.Settings, nil
 }
 
+func StartOnPort(ctx context.Context, publicHost string, basePath string, port uint16) error {
+	return start(ctx, publicHost, basePath, port, nil)
+}
+
 func Start(ctx context.Context, publicHost string, basePath string, portAnnounceCh chan<- uint16) error {
 	defer close(portAnnounceCh)
+	return start(ctx, publicHost, basePath, 0, portAnnounceCh)
+}
+
+func start(ctx context.Context, publicHost string, basePath string, port uint16, portAnnounceCh chan<- uint16) error {
 	users := map[string]*user{
 		"anonymous": {
 			password: "*",
 			basePath: basePath,
 		},
 	}
-	d, err := newDriver(ctx, publicHost, users, portAnnounceCh)
+	d, err := newDriver(ctx, publicHost, users, port, portAnnounceCh)
 	if err != nil {
 		return err
 	}
